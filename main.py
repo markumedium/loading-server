@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import json
 import os
 from datetime import datetime, timedelta
-import threading
+from datetime import timezone
 import time
 import uuid
 
@@ -122,7 +122,10 @@ def update_status(data: StatusUpdate):
         history[data.truck_id] = []
 
     try:
-        timestamp_unix = int(datetime.strptime(data.timestamp, "%Y-%m-%d %H:%M:%S").timestamp())
+        from datetime import timezone
+
+        timestamp_unix = int(
+            datetime.strptime(data.timestamp, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc).timestamp())
     except:
         timestamp_unix = int(time.time())
 
@@ -276,7 +279,7 @@ def reset_task():
             if truck['id'] not in history:
                 history[truck['id']] = []
 
-            timestamp_unix = int(datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S").timestamp())
+            timestamp_unix = int(datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc).timestamp())
             history[truck['id']].append({
                 "timestamp": timestamp_unix,
                 "status": "На территории",
@@ -304,3 +307,22 @@ def get_truck_by_id(truck_id: str):
         if t["id"] == truck_id:
             return t
     raise HTTPException(status_code=404, detail="Truck not found")
+
+@app.get("/status_history_range")
+def get_status_history_range(start: str, end: str):
+    result = {}
+    try:
+        start_date = datetime.strptime(start, "%Y-%m-%d")
+        end_date = datetime.strptime(end, "%Y-%m-%d")
+        delta = timedelta(days=1)
+
+        while start_date <= end_date:
+            date_str = start_date.strftime("%Y-%m-%d")
+            file_path = os.path.join(DATA_PATH, f"{date_str}.json")
+            if os.path.exists(file_path):
+                result[date_str] = load_json(file_path)
+            start_date += delta
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return result
