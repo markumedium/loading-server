@@ -7,6 +7,10 @@ from datetime import datetime, timedelta
 from datetime import timezone
 import time
 import uuid
+from telegram import start_telegram_bot
+import threading
+
+threading.Thread(target=start_telegram_bot, daemon=True).start()
 
 app = FastAPI()
 
