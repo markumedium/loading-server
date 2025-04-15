@@ -226,9 +226,11 @@ def check_commands_loop():
             resp = requests.get(url).json()
             for result in resp.get("result", []):
                 offset = result["update_id"] + 1
+                print("📥 Получено сообщение от Telegram:", result)
                 msg = result.get("message") or result.get("channel_post")
                 if msg:
                     text = msg.get("text", "").lower().strip()
+                    print("💬 Текст сообщения:", text)
                     if "отчет" in text:
                         today = datetime.now().strftime("%Y-%m-%d")
                         path = generate_png_report(today)
