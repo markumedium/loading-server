@@ -168,6 +168,40 @@ def send_to_telegram(text=None, image_path=None):
                           files={"photo": f},
                           data={"chat_id": CHAT_ID})
 
+# ========== ОПОВЕЩЕНИЯ ==========
+def check_long_loading():
+    global notified_trucks
+    today = datetime.now().strftime("%Y-%m-%d")
+    trucks = load_trucks()
+    history = load_json(os.path.join(DATA_PATH, f"{today}.json"))
+
+    for truck in trucks:
+        if truck['status'] != "Отгружается":
+            continue
+
+        tid = truck['id']
+        cycle = truck.get('cycle', 1)
+        entries = history.get(tid, [])
+        start_time = None
+
+        for entry in reversed(entries):
+            if entry['status'] == "Отгружается" and entry['cycle'] == cycle:
+                start_time = entry['timestamp']
+                break
+
+        if not start_time:
+            continue
+
+        duration = time.time() - start_time
+        if duration >= 1800 and notified_trucks.get(tid) != cycle:
+            model = truck.get("model", "")
+            plate = truck.get("licensePlate", "")
+            start_str = datetime.utcfromtimestamp(start_time).strftime("%H:%M")
+            dur_str = str(timedelta(seconds=int(duration)))
+            text = f"🚨 *ВНИМАНИЕ*: {model} / {plate}\nСтатус: Отгружается более 30 минут!\n⏱ С начала: ({start_str}), прошло: {dur_str}"
+            send_to_telegram(text=text)
+            notified_trucks[tid] = cycle
+
 # ========== ПЛАНОВАЯ ЗАДАЧА ==========
 def daily_bot_task():
     sent_today = None
@@ -193,10 +227,12 @@ def check_commands_loop():
             for result in resp.get("result", []):
                 offset = result["update_id"] + 1
                 msg = result.get("message")
-                if msg and msg.get("text", "").lower().strip() == "/отчет":
-                    today = datetime.now().strftime("%Y-%m-%d")
-                    path = generate_png_report(today)
-                    send_to_telegram(image_path=path)
+                if msg:
+                    text = msg.get("text", "").lower().strip()
+                    if "отчет" in text:
+                        today = datetime.now().strftime("%Y-%m-%d")
+                        path = generate_png_report(today)
+                        send_to_telegram(image_path=path)
         except:
             pass
         time.sleep(5)
@@ -212,3 +248,6 @@ def loop_with_interval(fn, seconds):
     while True:
         fn()
         time.sleep(seconds)
+
+# Автоматический запуск (если скрипт запущен напрямую)
+threading.Thread(target=start_telegram_bot, daemon=True).start()
