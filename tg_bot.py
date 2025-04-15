@@ -6,8 +6,12 @@ import os
 import pandas as pd
 import matplotlib.pyplot as plt
 from datetime import datetime, timedelta, timezone
-from reportlab.lib.pagesizes import letter
-from reportlab.pdfgen import canvas
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4, landscape
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 
 BOT_TOKEN = "7705882526:AAG0ZaDbFjNxGRe7-TGbAVSEIrwKuOmOW0k"
 CHAT_ID = "-1002540325886"
@@ -18,6 +22,8 @@ SEND_HOUR_UTC = 14  # 19:00 по UTC+5
 notified_trucks = {}
 report_pending = False  # блокировка выбора формата
 processed_callbacks = set()  # защита от повторов
+
+pdfmetrics.registerFont(TTFont('DejaVuSans', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'))
 
 # ========== УТИЛИТЫ ==========
 def load_json(path):
@@ -86,15 +92,24 @@ def generate_report_dataframe(date_str):
 def generate_pdf_report(date_str):
     df = generate_report_dataframe(date_str)
     path = f"report_{date_str}.pdf"
-    c = canvas.Canvas(path, pagesize=letter)
-    width, height = letter
-    textobject = c.beginText(40, height - 40)
-    textobject.setFont("Helvetica", 10)
-    lines = df.to_string(index=False).split("\n")
-    for line in lines:
-        textobject.textLine(line)
-    c.drawText(textobject)
-    c.save()
+    doc = SimpleDocTemplate(path, pagesize=landscape(A4))
+    styles = getSampleStyleSheet()
+    elements = []
+    title = Paragraph(f"<b>Отчет за {date_str}</b><br/><i>(в скобках указано время начала статуса)</i>", styles['Title'])
+    elements.append(title)
+    elements.append(Paragraph("<br/><br/>", styles['Normal']))
+    data = [df.columns.tolist()] + df.values.tolist()
+    table = Table(data)
+    table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
+        ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
+        ('FONTNAME', (0, 0), (-1, -1), 'DejaVuSans'),
+        ('FONTSIZE', (0, 0), (-1, -1), 9),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+    ]))
+    elements.append(table)
+    doc.build(elements)
     return path
 
 def generate_png_report(date_str):
@@ -116,7 +131,7 @@ def handle_command(text):
         return
 
     text = text.lower().strip()
-    if text in ["/отчет", "/отчет@marmari_loadcontrol_bot", "/otchet", "/otchet@marmari_loadcontrol_bot"]:
+    if "/отчет" in text or "/otchet" in text:
         report_pending = True
         send_to_telegram(
             text="Выберите формат отчёта:",
@@ -127,17 +142,14 @@ def handle_command(text):
                 ]
             }
         )
-    elif text in ["/status", "/status@marmari_loadcontrol_bot"]:
+    elif "/status" in text:
         trucks = load_trucks()
         statuses = "\n".join(f"{t['model']} / {t['licensePlate']}: {t['status']}" for t in trucks)
-        send_to_telegram("*Текущие статусы:*\n\n" + statuses)
-    elif text.startswith("/mashina"):
-        keyword = text.split(" ", 1)[-1].strip().lower()
-        matches = []
-        for t in load_trucks():
-            if keyword in t['model'].lower() or keyword in t['licensePlate'].lower():
-                matches.append(f"{t['model']} / {t['licensePlate']}: {t['status']}")
-        send_to_telegram("*Результаты поиска:*\n\n" + ("\n".join(matches) if matches else "Ничего не найдено"))
+        send_to_telegram("*Текущие статусы:*" + statuses)
+    elif "/mashina" in text:
+        trucks = load_trucks()
+        buttons = [[{"text": f"{t['model']} ({t['licensePlate']})", "callback_data": f"info_{t['id']}"}] for t in trucks]
+        send_to_telegram("Выберите машину:", reply_markup={"inline_keyboard": buttons})
 
 # ========== CALLBACK ==========
 def handle_callback(callback_data, callback_id):
@@ -150,11 +162,17 @@ def handle_callback(callback_data, callback_id):
     if callback_data == "report_png":
         path = generate_png_report(today)
         send_to_telegram(image_path=path)
+        report_pending = False
     elif callback_data == "report_pdf":
         path = generate_pdf_report(today)
         send_to_telegram(text=f"PDF-файл: {today}", image_path=path)
-
-    report_pending = False
+        report_pending = False
+    elif callback_data.startswith("info_"):
+        tid = callback_data.replace("info_", "")
+        truck = next((t for t in load_trucks() if t["id"] == tid), None)
+        if truck:
+            info = f"Модель: {truck['model']}\nГосномер: {truck['licensePlate']}\nСтатус: {truck['status']}\nЦикл: {truck.get('cycle', '-') }"
+            send_to_telegram(f"*Информация о машине:*\n{info}")
 
 # ========== ОБНОВЛЕНИЯ ==========
 def check_updates():
