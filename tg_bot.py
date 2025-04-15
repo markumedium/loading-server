@@ -10,8 +10,7 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
 from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
+
 
 BOT_TOKEN = "7705882526:AAG0ZaDbFjNxGRe7-TGbAVSEIrwKuOmOW0k"
 CHAT_ID = "-1002540325886"
@@ -22,8 +21,6 @@ SEND_HOUR_UTC = 14  # 19:00 по UTC+5
 notified_trucks = {}
 report_pending = False  # блокировка выбора формата
 processed_callbacks = set()  # защита от повторов
-
-pdfmetrics.registerFont(TTFont('DejaVuSans', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'))
 
 # ========== УТИЛИТЫ ==========
 def load_json(path):
@@ -94,6 +91,8 @@ def generate_pdf_report(date_str):
     path = f"report_{date_str}.pdf"
     doc = SimpleDocTemplate(path, pagesize=landscape(A4))
     styles = getSampleStyleSheet()
+    style = styles["Normal"]
+    style.fontName = "Helvetica"
     elements = []
     title = Paragraph(f"<b>Отчет за {date_str}</b><br/><i>(в скобках указано время начала статуса)</i>", styles['Title'])
     elements.append(title)
