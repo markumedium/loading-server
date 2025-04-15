@@ -30,6 +30,55 @@ def load_trucks():
             return json.load(f)
     return []
 
+# ========== ОТПРАВКА ==========
+def send_to_telegram(text=None, image_path=None):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    if text:
+        requests.post(url, data={
+            "chat_id": CHAT_ID,
+            "text": text,
+            "parse_mode": "Markdown"
+        })
+    if image_path:
+        with open(image_path, 'rb') as f:
+            requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
+                          files={"photo": f},
+                          data={"chat_id": CHAT_ID})
+
+# ========== ОПОВЕЩЕНИЯ ==========
+def check_long_loading():
+    global notified_trucks
+    today = datetime.now().strftime("%Y-%m-%d")
+    trucks = load_trucks()
+    history = load_json(os.path.join(DATA_PATH, f"{today}.json"))
+
+    for truck in trucks:
+        if truck['status'] != "Отгружается":
+            continue
+
+        tid = truck['id']
+        cycle = truck.get('cycle', 1)
+        entries = history.get(tid, [])
+        start_time = None
+
+        for entry in reversed(entries):
+            if entry['status'] == "Отгружается" and entry['cycle'] == cycle:
+                start_time = entry['timestamp']
+                break
+
+        if not start_time:
+            continue
+
+        duration = time.time() - start_time
+        if duration >= 1800 and notified_trucks.get(tid) != cycle:
+            model = truck.get("model", "")
+            plate = truck.get("licensePlate", "")
+            start_str = datetime.utcfromtimestamp(start_time).strftime("%H:%M")
+            dur_str = str(timedelta(seconds=int(duration)))
+            text = f"🚨 *ВНИМАНИЕ*: {model} / {plate}\nСтатус: Отгружается более 30 минут!\n⏱ С начала: ({start_str}), прошло: {dur_str}"
+            send_to_telegram(text=text)
+            notified_trucks[tid] = cycle
+
 # ========== ГЕНЕРАЦИЯ PNG ОТЧЁТА ==========
 def generate_png_report(date_str):
     trucks = load_trucks()
@@ -153,55 +202,6 @@ def generate_png_report(date_str):
     plt.close()
     return output_path
 
-# ========== ОТПРАВКА ==========
-def send_to_telegram(text=None, image_path=None):
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    if text:
-        requests.post(url, data={
-            "chat_id": CHAT_ID,
-            "text": text,
-            "parse_mode": "Markdown"
-        })
-    if image_path:
-        with open(image_path, 'rb') as f:
-            requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
-                          files={"photo": f},
-                          data={"chat_id": CHAT_ID})
-
-# ========== ОПОВЕЩЕНИЯ ==========
-def check_long_loading():
-    global notified_trucks
-    today = datetime.now().strftime("%Y-%m-%d")
-    trucks = load_trucks()
-    history = load_json(os.path.join(DATA_PATH, f"{today}.json"))
-
-    for truck in trucks:
-        if truck['status'] != "Отгружается":
-            continue
-
-        tid = truck['id']
-        cycle = truck.get('cycle', 1)
-        entries = history.get(tid, [])
-        start_time = None
-
-        for entry in reversed(entries):
-            if entry['status'] == "Отгружается" and entry['cycle'] == cycle:
-                start_time = entry['timestamp']
-                break
-
-        if not start_time:
-            continue
-
-        duration = time.time() - start_time
-        if duration >= 1800 and notified_trucks.get(tid) != cycle:
-            model = truck.get("model", "")
-            plate = truck.get("licensePlate", "")
-            start_str = datetime.utcfromtimestamp(start_time).strftime("%H:%M")
-            dur_str = str(timedelta(seconds=int(duration)))
-            text = f"🚨 *ВНИМАНИЕ*: {model} / {plate}\nСтатус: Отгружается более 30 минут!\n⏱ С начала: ({start_str}), прошло: {dur_str}"
-            send_to_telegram(text=text)
-            notified_trucks[tid] = cycle
-
 # ========== ПЛАНОВАЯ ЗАДАЧА ==========
 def daily_bot_task():
     sent_today = None
@@ -226,7 +226,7 @@ def check_commands_loop():
             resp = requests.get(url).json()
             for result in resp.get("result", []):
                 offset = result["update_id"] + 1
-                msg = result.get("message")
+                msg = result.get("message") or result.get("channel_post")
                 if msg:
                     text = msg.get("text", "").lower().strip()
                     if "отчет" in text:
@@ -249,5 +249,5 @@ def loop_with_interval(fn, seconds):
         fn()
         time.sleep(seconds)
 
-# Автоматический запуск (если скрипт запущен напрямую)
+# Автозапуск бота
 threading.Thread(target=start_telegram_bot, daemon=True).start()
