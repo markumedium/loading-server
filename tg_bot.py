@@ -6,6 +6,8 @@ import os
 import pandas as pd
 import matplotlib.pyplot as plt
 from datetime import datetime, timedelta, timezone
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
 
 BOT_TOKEN = "7705882526:AAG0ZaDbFjNxGRe7-TGbAVSEIrwKuOmOW0k"
 CHAT_ID = "-1002540325886"
@@ -14,9 +16,8 @@ DATA_PATH = "status_history"
 TRUCKS_PATH = "trucks.json"
 SEND_HOUR_UTC = 14  # 19:00 по UTC+5
 notified_trucks = {}
-report_pending = False
-processed_callbacks = set()
-message_ids_to_delete = []
+report_pending = False  # блокировка выбора формата
+processed_callbacks = set()  # защита от повторов
 
 # ========== УТИЛИТЫ ==========
 def load_json(path):
@@ -41,12 +42,7 @@ def send_to_telegram(text=None, image_path=None, reply_markup=None):
         }
         if reply_markup:
             data["reply_markup"] = json.dumps(reply_markup)
-        resp = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", data=data)
-        if reply_markup and resp.ok:
-            msg_id = resp.json().get("result", {}).get("message_id")
-            if msg_id:
-                message_ids_to_delete.append(msg_id)
-
+        requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", data=data)
     if image_path:
         with open(image_path, 'rb') as f:
             requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendDocument",
@@ -65,7 +61,7 @@ def generate_report_dataframe(date_str):
         model = truck.get('model', '-')
         plate = truck.get('licensePlate', '-')
         cycle = truck.get('cycle', 1)
-        entries = [e for e in history.get(tid, []) if e['cycle'] == cycle]
+        entries = history.get(tid, [])
         by_status = {s: ('', '') for s in statuses}
         for i in range(1, len(entries)):
             s1, t1 = entries[i-1]['status'], entries[i-1]['timestamp']
@@ -90,9 +86,15 @@ def generate_report_dataframe(date_str):
 def generate_pdf_report(date_str):
     df = generate_report_dataframe(date_str)
     path = f"report_{date_str}.pdf"
-    df.to_string(buf=open("temp.txt", "w", encoding='utf-8'), index=False)
-    os.system(f"enscript temp.txt -o - | ps2pdf - {path}")
-    os.remove("temp.txt")
+    c = canvas.Canvas(path, pagesize=letter)
+    width, height = letter
+    textobject = c.beginText(40, height - 40)
+    textobject.setFont("Helvetica", 10)
+    lines = df.to_string(index=False).split("\n")
+    for line in lines:
+        textobject.textLine(line)
+    c.drawText(textobject)
+    c.save()
     return path
 
 def generate_png_report(date_str):
@@ -114,7 +116,7 @@ def handle_command(text):
         return
 
     text = text.lower().strip()
-    if text in ["/отчет", "/otchet"]:
+    if text in ["/отчет", "/отчет@marmari_loadcontrol_bot", "/otchet", "/otchet@marmari_loadcontrol_bot"]:
         report_pending = True
         send_to_telegram(
             text="Выберите формат отчёта:",
@@ -125,7 +127,7 @@ def handle_command(text):
                 ]
             }
         )
-    elif text in ["/status"]:
+    elif text in ["/status", "/status@marmari_loadcontrol_bot"]:
         trucks = load_trucks()
         statuses = "\n".join(f"{t['model']} / {t['licensePlate']}: {t['status']}" for t in trucks)
         send_to_telegram("*Текущие статусы:*\n\n" + statuses)
@@ -151,11 +153,6 @@ def handle_callback(callback_data, callback_id):
     elif callback_data == "report_pdf":
         path = generate_pdf_report(today)
         send_to_telegram(text=f"PDF-файл: {today}", image_path=path)
-
-    # Удаление меню после выбора
-    for msg_id in message_ids_to_delete:
-        requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteMessage?chat_id={CHAT_ID}&message_id={msg_id}")
-    message_ids_to_delete.clear()
 
     report_pending = False
 

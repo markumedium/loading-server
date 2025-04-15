@@ -4,3 +4,4 @@ pydantic
 requests
 pandas
 matplotlib
+reportlab
