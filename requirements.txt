@@ -1,7 +1,3 @@
 fastapi
 uvicorn
 pydantic
-requests
-pandas
-matplotlib
-reportlab
