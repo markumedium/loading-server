@@ -7,19 +7,19 @@
   },
   {
     "login": "dr1",
-    "password": "123",
+    "password": "1231",
     "role": "driver",
     "truck": "c384fe02-315b-4706-a882-016c57aaf39f"
   },
   {
     "login": "dr2",
-    "password": "123",
+    "password": "1232",
     "role": "driver",
     "truck": "ff745c59-583c-44a0-8cbe-ad50cbca0c19"
   },
   {
     "login": "dr3",
-    "password": "123",
+    "password": "1233",
     "role": "driver",
     "truck": "125a9b90-80a5-4a96-b759-991acda19eb1"
   },
