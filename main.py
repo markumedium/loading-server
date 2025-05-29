@@ -106,8 +106,10 @@ def status_today():
     fp=os.path.join(DATA_PATH,f"{today}.json")
     return {today: load_json(fp)}
 
-@app.get("/trucks")                ; def trucks(): return load_trucks()
-@app.get("/user/{login}")          ; def user(login):
+@app.get("/trucks")                
+def trucks(): return load_trucks()
+@app.get("/user/{login}")          
+def user(login):
     for u in load_users():
         if u["login"]==login: return u
     raise HTTPException(404,"User not found")
