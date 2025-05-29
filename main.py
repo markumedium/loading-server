@@ -107,7 +107,8 @@ def status_today():
     return {today: load_json(fp)}
 
 @app.get("/trucks")                
-def trucks(): return load_trucks()
+def trucks(): 
+    return load_trucks()
 @app.get("/user/{login}")          
 def user(login):
     for u in load_users():
@@ -121,13 +122,16 @@ def login(auth:UserAuth):
             return {"role":u["role"],"login":u["login"],"truck":u.get("truck")}
     raise HTTPException(401,"Invalid creds")
 
-@app.post("/add_user") ; def add_user(u:AddUser):
+@app.post("/add_user") 
+def add_user(u:AddUser):
     users=load_users()
     if any(x["login"]==u.login for x in users): raise HTTPException(400,"Exists")
     users.append({"login":u.login,"password":u.password,"role":u.role,"truck":None})
     save_users(users); return {"message":"User added"}
 
-@app.get("/drivers") ; def drivers(): return [u for u in load_users() if u["role"]=="driver"]
+@app.get("/drivers") 
+def drivers(): 
+    return [u for u in load_users() if u["role"]=="driver"]
 
 @app.post("/assign_truck")
 def assign(at:AssignTruck):
@@ -151,13 +155,15 @@ def add_truck(t:AddTruckRequest):
     save_json(fp,hist)
     return {"message":"Truck added"}
 
-@app.post("/update_truck") ; def upd_truck(t:Truck):
+@app.post("/update_truck") 
+def upd_truck(t:Truck):
     trucks=load_trucks()
     for tr in trucks:
         if tr["id"]==t.id: tr.update({"model":t.model,"licensePlate":t.licensePlate})
     save_trucks(trucks); return {"message":"OK"}
 
-@app.post("/delete_truck") ; def del_truck(truck_id:str):
+@app.post("/delete_truck") 
+def del_truck(truck_id:str):
     save_trucks([t for t in load_trucks() if t["id"]!=truck_id]); return {"message":"OK"}
 
 # -------- ночной каскадный сброс --------
@@ -200,4 +206,5 @@ def nightly_reset():
 def internal(_:None=Depends(check)): return nightly_reset()
 
 # root / misc
-@app.get("/") ; def root(): return {"status":"alive"}
+@app.get("/")
+def root(): return {"status":"alive"}
