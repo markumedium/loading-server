@@ -5,7 +5,6 @@ import json, os, time, uuid
 from datetime import datetime, timedelta, timezone
 
 app = FastAPI()
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -14,197 +13,300 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-DATA_PATH   = "status_history"
+DATA_PATH = "status_history"
 TRUCKS_PATH = "trucks.json"
-USERS_PATH  = "users.json"
+USERS_PATH = "users.json"
 
-allowed = {
+allowed_transitions = {
     "На территории": ["Отгружается"],
-    "Отгружается"  : ["Готов к выезду"],
+    "Отгружается": ["Готов к выезду"],
     "Готов к выезду": ["Выехал"],
-    "Выехал"       : ["На территории"]
+    "Выехал": ["На территории"]
 }
 
 os.makedirs(DATA_PATH, exist_ok=True)
 
 # ---------- модели ----------
 class StatusUpdate(BaseModel):
-    truck_id : str
-    status   : str
+    truck_id: str
+    status: str
     timestamp: str
-    weight   : float | None = None   # ← новинка!
+    weight: float | None = None   # сохраняем вес при переходе
 
 class UserAuth(BaseModel):
-    login: str;  password: str
+    login: str
+    password: str
 
 class AddUser(BaseModel):
-    login:str; password:str; role:str
+    login: str
+    password: str
+    role: str
 
 class AssignTruck(BaseModel):
-    login:str; truck_id:str
+    login: str
+    truck_id: str
 
 class Truck(BaseModel):
-    id:str; model:str; licensePlate:str; status:str
+    id: str
+    model: str
+    licensePlate: str
+    status: str
 
 class AddTruckRequest(BaseModel):
-    model:str; licensePlate:str
+    model: str
+    licensePlate: str
+
 # ---------- helpers ----------
-load_json = lambda p: json.load(open(p)) if os.path.exists(p) else []
-def save_json(path, data): json.dump(data, open(path,"w"), indent=2, ensure_ascii=False)
-load_trucks = lambda : load_json(TRUCKS_PATH)
-save_trucks = lambda t: save_json(TRUCKS_PATH, t)
-load_users  = lambda : load_json(USERS_PATH)
-save_users  = lambda u: save_json(USERS_PATH, u)
+def load_json(path: str, default):
+    if os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return default
+
+
+def save_json(path: str, data):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+
+def load_trucks():
+    return load_json(TRUCKS_PATH, [])
+
+
+def save_trucks(trucks):
+    save_json(TRUCKS_PATH, trucks)
+
+
+def load_users():
+    return load_json(USERS_PATH, [])
+
+
+def save_users(users):
+    save_json(USERS_PATH, users)
+
 # ---------- API ----------
 @app.post("/update_status")
 def update_status(data: StatusUpdate):
     trucks = load_trucks()
+    found = False
+    current_cycle = 1
+
     for tr in trucks:
         if tr["id"] == data.truck_id:
             cur_status = tr["status"]
-            cur_cycle  = tr.get("cycle",1)
-            if data.status not in allowed.get(cur_status,[]):
-                raise HTTPException(400,f"Недопустимый переход: {cur_status}→{data.status}")
-            # если цикл завершается («Выехал»→«На территории»)
-            if cur_status=="Выехал" and data.status=="На территории":
-                cur_cycle += 1
+            current_cycle = tr.get("cycle", 1)
+
+            if data.status not in allowed_transitions.get(cur_status, []):
+                raise HTTPException(status_code=400, detail=f"Недопустимый переход: {cur_status} → {data.status}")
+
+            # фиксируем вес при переходе Отгружается→Готов к выезду
+            w = 0.0
+            if cur_status == "Отгружается" and data.status == "Готов к выезду":
+                w = float(data.weight or 0)
+                tr["weight"] = w
+
+            # обновляем статус и цикл
+            if cur_status == "Выехал" and data.status == "На территории":
+                current_cycle += 1
             tr["status"] = data.status
-            tr["cycle"]  = cur_cycle
+            tr["cycle"] = current_cycle
+            found = True
             break
-    else:
-        raise HTTPException(404,"Truck not found")
+
+    if not found:
+        raise HTTPException(status_code=404, detail="Truck not found")
+
     save_trucks(trucks)
 
+    # Работа с историей за сегодня
     today = datetime.now().strftime("%Y-%m-%d")
-    fpath = os.path.join(DATA_PATH,f"{today}.json")
-    hist  = load_json(fpath)
-    hist.setdefault(data.truck_id,[])
+    file_path = os.path.join(DATA_PATH, f"{today}.json")
+    history = load_json(file_path, {})
+
+    if data.truck_id not in history:
+        history[data.truck_id] = []
+
     try:
-        ts_unix = int(datetime.strptime(data.timestamp,"%Y-%m-%d %H:%M:%S")
-                      .replace(tzinfo=timezone.utc).timestamp())
-    except: ts_unix = int(time.time())
+        timestamp_unix = int(
+            datetime.strptime(data.timestamp, "%Y-%m-%d %H:%M:%S").
+            replace(tzinfo=timezone.utc).timestamp()
+        )
+    except:
+        timestamp_unix = int(time.time())
 
-    # вес фиксируем ТОЛЬКО на переходе Отгружается→Готов к выезду
-    w = 0.0
-    if cur_status=="Отгружается" and data.status=="Готов к выезду":
-        w = float(data.weight or 0)
-
-    hist[data.truck_id].append({
-        "timestamp": ts_unix,
-        "status"   : data.status,
-        "cycle"    : tr["cycle"],
-        "weight"   : w
+    history[data.truck_id].append({
+        "timestamp": timestamp_unix,
+        "status": data.status,
+        "cycle": current_cycle,
+        "weight": w
     })
-    hist[data.truck_id].sort(key=lambda x:x["timestamp"])
-    save_json(fpath,hist)
-    return {"message":"OK"}
+    history[data.truck_id].sort(key=lambda x: x["timestamp"])
+    save_json(file_path, history)
 
-# -------- read end-points (без изменений) --------
+    return {"message": "OK"}
+
 @app.get("/status_history")
-def status_today():
-    today=datetime.now().strftime("%Y-%m-%d")
-    fp=os.path.join(DATA_PATH,f"{today}.json")
-    return {today: load_json(fp)}
+def get_status_history():
+    today = datetime.now().strftime("%Y-%m-%d")
+    file_path = os.path.join(DATA_PATH, f"{today}.json")
+    history = load_json(file_path, {})
+    return {today: history}
 
-@app.get("/trucks")                
-def trucks(): 
+@app.get("/trucks")
+def get_trucks():
     return load_trucks()
-@app.get("/user/{login}")          
-def user(login):
-    for u in load_users():
-        if u["login"]==login: return u
-    raise HTTPException(404,"User not found")
+
+@app.get("/user/{login}")
+def get_user(login: str):
+    users = load_users()
+    for u in users:
+        if u["login"] == login:
+            return u
+    raise HTTPException(status_code=404, detail="User not found")
 
 @app.post("/login")
-def login(auth:UserAuth):
-    for u in load_users():
-        if u["login"]==auth.login and u["password"]==auth.password:
-            return {"role":u["role"],"login":u["login"],"truck":u.get("truck")}
-    raise HTTPException(401,"Invalid creds")
+def login(auth: UserAuth):
+    users = load_users()
+    for u in users:
+        if u["login"] == auth.login and u["password"] == auth.password:
+            return {"role": u["role"], "login": u["login"], "truck": u.get("truck")}
+    raise HTTPException(status_code=401, detail="Invalid credentials")
 
-@app.post("/add_user") 
-def add_user(u:AddUser):
-    users=load_users()
-    if any(x["login"]==u.login for x in users): raise HTTPException(400,"Exists")
-    users.append({"login":u.login,"password":u.password,"role":u.role,"truck":None})
-    save_users(users); return {"message":"User added"}
+@app.post("/add_user")
+def add_user(user: AddUser):
+    users = load_users()
+    if any(u["login"] == user.login for u in users):
+        raise HTTPException(status_code=400, detail="User already exists")
+    users.append({
+        "login": user.login,
+        "password": user.password,
+        "role": user.role,
+        "truck": None
+    })
+    save_users(users)
+    return {"message": "User added"}
 
-@app.get("/drivers") 
-def drivers(): 
-    return [u for u in load_users() if u["role"]=="driver"]
+@app.get("/drivers")
+def get_drivers():
+    return [u for u in load_users() if u["role"] == "driver"]
 
 @app.post("/assign_truck")
-def assign(at:AssignTruck):
-    users=load_users()
+def assign_truck(data: AssignTruck):
+    users = load_users()
     for u in users:
-        if u["login"]==at.login: u["truck"]=at.truck_id
-    save_users(users); return {"message":"OK"}
+        if u["login"] == data.login:
+            u["truck"] = data.truck_id
+    save_users(users)
+    return {"message": "Truck assigned"}
 
 @app.post("/add_truck")
-def add_truck(t:AddTruckRequest):
-    trucks=load_trucks()
-    tid=str(uuid.uuid4())
-    trucks.append({"id":tid,"model":t.model,"licensePlate":t.licensePlate,
-                   "status":"На территории","cycle":1})
+def add_truck(data: AddTruckRequest):
+    if not data.model or not data.licensePlate:
+        raise HTTPException(status_code=400, detail="Модель и госномер обязательны")
+
+    trucks = load_trucks()
+    new_id = str(uuid.uuid4())
+    trucks.append({
+        "id": new_id,
+        "model": data.model,
+        "licensePlate": data.licensePlate,
+        "status": "На территории",
+        "cycle": 1,
+        "weight": 0.0
+    })
     save_trucks(trucks)
-    # сразу пишем историю
-    ts=int(time.time())
-    fp=os.path.join(DATA_PATH,datetime.now().strftime("%Y-%m-%d")+".json")
-    hist=load_json(fp); hist.setdefault(tid,[]).append(
-        {"timestamp":ts,"status":"На территории","cycle":1,"weight":0})
-    save_json(fp,hist)
-    return {"message":"Truck added"}
 
-@app.post("/update_truck") 
-def upd_truck(t:Truck):
-    trucks=load_trucks()
-    for tr in trucks:
-        if tr["id"]==t.id: tr.update({"model":t.model,"licensePlate":t.licensePlate})
-    save_trucks(trucks); return {"message":"OK"}
+    # Запись в историю
+    timestamp = int(datetime.utcnow().timestamp())
+    today = datetime.now().strftime("%Y-%m-%d")
+    file_path = os.path.join(DATA_PATH, f"{today}.json")
+    history = load_json(file_path, {})
 
-@app.post("/delete_truck") 
-def del_truck(truck_id:str):
-    save_trucks([t for t in load_trucks() if t["id"]!=truck_id]); return {"message":"OK"}
+    if new_id not in history:
+        history[new_id] = []
+    history[new_id].append({
+        "timestamp": timestamp,
+        "status": "На территории",
+        "cycle": 1,
+        "weight": 0.0
+    })
+    save_json(file_path, history)
 
-# -------- ночной каскадный сброс --------
-RESET_TOKEN=os.getenv("RESET_TOKEN","supersecret")
-def check(x_internal_token:str=Header(...)):
-    if x_internal_token!=RESET_TOKEN: raise HTTPException(403,"forbidden")
+    return {"message": "Машина добавлена"}
 
-def nightly_reset():
-    trucks=load_trucks()
-    today=datetime.now().strftime("%Y-%m-%d")
-    fp=os.path.join(DATA_PATH,f"{today}.json")
-    hist=load_json(fp)
-    ts=int(datetime.utcnow().replace(tzinfo=timezone.utc).timestamp())
+@app.post("/update_truck")
+def update_truck(truck: Truck):
+    trucks = load_trucks()
+    for t in trucks:
+        if t["id"] == truck.id:
+            t.update({"model": truck.model, "licensePlate": truck.licensePlate})
+            break
+    save_trucks(trucks)
+    return {"message": "Truck updated"}
 
-    seq={
-        "Отгружается": ["Готов к выезду","Выехал","На территории"],
-        "Готов к выезду":["Выехал","На территории"],
-        "Выехал":["На территории"],
-        "На территории":[]
-    }
-    for tr in trucks:
-        cur=tr["status"]
-        for nxt in seq[cur]:
-            w=0.0
-            if nxt=="Готов к выезду": w=0.0   # ночной вес всегда 0
-            hist.setdefault(tr["id"],[]).append({
-                "timestamp":ts,
-                "status":nxt,
-                "cycle":tr["cycle"],
-                "weight":w
-            })
-            tr["status"]=nxt
-            if nxt=="На территории":
-                tr["cycle"]+=1
-                break
-    save_trucks(trucks); save_json(fp,hist)
-    return {"message":"night reset done"}
+@app.post("/delete_truck")
+def delete_truck(truck_id: str):
+    save_trucks([t for t in load_trucks() if t["id"] != truck_id])
+    return {"message": "Truck deleted"}
+
+# ========== НОЧНОЙ СБРОС ==========
+RESET_TOKEN = os.getenv("RESET_TOKEN", "supersecret")
+
+def check_token(x_internal_token: str = Header(...)):
+    if x_internal_token != RESET_TOKEN:
+        raise HTTPException(status_code=403, detail="Недопустимо")
 
 @app.post("/internal/reset")
-def internal(_:None=Depends(check)): return nightly_reset()
+def internal_reset(_: None = Depends(check_token)):
+    trucks = load_trucks()
+    today = datetime.now().strftime("%Y-%m-%d")
+    file_path = os.path.join(DATA_PATH, f"{today}.json")
+    history = load_json(file_path, {})
 
-# root / misc
+    timestamp_unix = int(datetime.utcnow().replace(tzinfo=timezone.utc).timestamp())
+    for tr in trucks:
+        tr["status"] = "На территории"
+        tr["cycle"] = tr.get("cycle", 1) + 1
+        tr.setdefault("weight", 0.0)
+        history.setdefault(tr["id"], []).append({
+            "timestamp": timestamp_unix,
+            "status": "На территории",
+            "cycle": tr["cycle"],
+            "weight": tr["weight"]
+        })
+
+    save_trucks(trucks)
+    save_json(file_path, history)
+    return {"message": "Сброс успешно выполнен"}
+
 @app.get("/")
-def root(): return {"status":"alive"}
+def root():
+    return {"message": "Сервер работает"}
+
+@app.get("/trucks_by_status")
+def get_trucks_by_status(status: str):
+    return [t for t in load_trucks() if t.get("status") == status]
+
+@app.get("/truck/{truck_id}")
+def get_truck_by_id(truck_id: str):
+    for t in load_trucks():
+        if t["id"] == truck_id:
+            return t
+    raise HTTPException(status_code=404, detail="Truck not found")
+
+@app.get("/status_history_range")
+def get_status_history_range(start: str, end: str):
+    result = {}
+    try:
+        sd = datetime.strptime(start, "%Y-%m-%d")
+        ed = datetime.strptime(end, "%Y-%m-%d")
+        while sd <= ed:
+            key = sd.strftime("%Y-%m-%d")
+            fp = os.path.join(DATA_PATH, f"{key}.json")
+            data = load_json(fp, {})
+            if data:
+                result[key] = data
+            sd += timedelta(days=1)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return result
