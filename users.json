@@ -21,78 +21,78 @@
     "login":"dr1",
     "password":"1231",
     "role":"driver",
-    "truck":"d32395ca-709a-4054-a686-d596462eee64"
+    "truck": null
   },
   {
     "login":"dr2",
     "password":"1232",
     "role":"driver",
-    "truck":"a739563d-f7d4-4709-9079-924aa58979ca"
+    "truck": null
   },
   {
     "login":"dr3",
     "password":"1233",
     "role":"driver",
-    "truck":"f8fbbaa9-3ea7-4e34-8ba2-17a0edb66d09"
+    "truck": null
   },
   {
     "login":"dr4",
     "password":"1234",
     "role":"driver",
-    "truck":"6bcc9691-07e7-4cf3-a918-d223c7c37039"
+    "truck": null
   },
   {
     "login":"dr5",
     "password":"1235",
     "role":"driver",
-    "truck":"0fe3ed8d-91c3-4814-98d1-d63a5acb076e"
+    "truck": null
   },
   {
     "login":"dr6",
     "password":"1236",
     "role":"driver",
-    "truck":"ca4c9c5b-4610-446a-a514-1daef56d9494"
+    "truck": null
   },
   {
     "login":"dr7",
     "password":"1237",
     "role":"driver",
-    "truck":"ca5f5773-badd-4d1b-b444-fd82845e2b7f"
+    "truck": null
   },
   {
     "login":"dr8",
     "password":"1238",
     "role":"driver",
-    "truck":"cf06cebf-5baa-4b93-8dac-c95ff27b1a22"
+     "truck": null
   },
   {
     "login":"dr9",
     "password":"1239",
     "role":"driver",
-    "truck":"dcb79b00-3a98-4400-ad06-84f515ba1013"
+    "truck": null
   },
   {
     "login":"dr10",
     "password":"12310",
     "role":"driver",
-    "truck":"b18cfb2c-2f20-439a-94e4-efa67c986060"
+     "truck": null
   },
   {
     "login":"dr11",
     "password":"12311",
     "role":"driver",
-    "truck":"ce771885-8a1d-4ea8-b0ee-d9256c0b2f39"
+    "truck": null
   },
   {
     "login":"dr12",
     "password":"12312",
     "role":"driver",
-    "truck":"52e86e95-6deb-4ad3-9c1a-282fbdbed186"
+    "truck": null
   },
   {
     "login":"test",
     "password":"123",
     "role":"driver",
-    "truck":"22c7d9bf-2ece-4d2a-ac47-eadc1541fa04"
+    "truck": null
   }
 ]
